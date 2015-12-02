@@ -17,9 +17,10 @@ import java.sql.{PreparedStatement, ResultSet}
 import org.apache.hadoop.mapreduce.lib.db.DBWritable
 import org.apache.phoenix.mapreduce.util.ColumnInfoToStringEncoderDecoder
 import org.apache.phoenix.schema.types.{PDate, PhoenixArray}
+import org.apache.phoenix.schema.types._
+import org.apache.phoenix.util.ColumnInfo
 import org.joda.time.DateTime
-import scala.collection.{immutable, mutable}
-import scala.collection.JavaConversions._
+import scala.collection.{mutable, immutable}
 
 class PhoenixRecordWritable(var encodedColumns: String) extends DBWritable {
   val upsertValues = mutable.ArrayBuffer[Any]()
@@ -46,11 +47,42 @@ class PhoenixRecordWritable(var encodedColumns: String) extends DBWritable {
         if (v != null) {
           // Both Java and Joda dates used to work in 4.2.3, but now they must be java.sql.Date
           val (finalObj, finalType) = v match {
-            case dt: DateTime => (new java.sql.Date(dt.getMillis), PDate.INSTANCE.getSqlType)
-            case d: java.util.Date => (new java.sql.Date(d.getTime), PDate.INSTANCE.getSqlType)
-            case _ => (v, c.getSqlType)
+            case dt: DateTime => (new java.sql.Date(dt.getMillis), PDate.INSTANCE)
+            case d: java.util.Date => (new java.sql.Date(d.getTime), PDate.INSTANCE)
+            case _ => (v, c.getPDataType)
           }
-          statement.setObject(i + 1, finalObj, finalType)
+
+
+          // Helper method to create an SQL array for a specific PDatatype, and set it on the statement
+          def setArrayInStatement(obj: Array[AnyRef]): Unit = {
+            // Create a java.sql.Array, need to lookup the base sql type name
+            val sqlArray = statement.getConnection.createArrayOf(
+              PDataType.arrayBaseType(finalType).getSqlTypeName,
+              obj
+            )
+            statement.setArray(i + 1, sqlArray)
+          }
+
+          // Determine whether to save as an array or object
+          (finalObj, finalType) match {
+            case (obj: Array[AnyRef], _) => setArrayInStatement(obj)
+            case (obj: mutable.ArrayBuffer[AnyVal], _) => setArrayInStatement(obj.map(_.asInstanceOf[AnyRef]).toArray)
+            case (obj: mutable.ArrayBuffer[AnyRef], _) => setArrayInStatement(obj.toArray)
+            case (obj: mutable.WrappedArray[AnyVal], _) => setArrayInStatement(obj.map(_.asInstanceOf[AnyRef]).toArray)
+            case (obj: mutable.WrappedArray[AnyRef], _) => setArrayInStatement(obj.toArray)
+            case (obj: Array[Int], _) => setArrayInStatement(obj.map(_.asInstanceOf[AnyRef]))
+            case (obj: Array[Long], _) => setArrayInStatement(obj.map(_.asInstanceOf[AnyRef]))
+            case (obj: Array[Char], _) => setArrayInStatement(obj.map(_.asInstanceOf[AnyRef]))
+            case (obj: Array[Short], _) => setArrayInStatement(obj.map(_.asInstanceOf[AnyRef]))
+            case (obj: Array[Float], _) => setArrayInStatement(obj.map(_.asInstanceOf[AnyRef]))
+            case (obj: Array[Double], _) => setArrayInStatement(obj.map(_.asInstanceOf[AnyRef]))
+            // PVarbinary and PBinary come in as Array[Byte] but they're SQL objects
+            case (obj: Array[Byte], _ : PVarbinary) => statement.setObject(i + 1, obj)
+            case (obj: Array[Byte], _ : PBinary) => statement.setObject(i + 1, obj)
+            // Otherwise set as array type
+            case (obj: Array[Byte], _) => setArrayInStatement(obj.map(_.asInstanceOf[AnyRef]))
+            case _ => statement.setObject(i + 1, finalObj)
+          }
         } else {
           statement.setNull(i + 1, c.getSqlType)
         }
