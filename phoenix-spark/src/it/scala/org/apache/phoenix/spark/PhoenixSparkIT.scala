@@ -448,29 +448,7 @@ class PhoenixSparkIT extends FunSuite with Matchers with BeforeAndAfterAll {
     count shouldEqual 1L
 
   }
-<<<<<<< HEAD
-  
-=======
 
-  test("Ensure DataFrame field normalization (PHOENIX-2196)") {
-    val rdd1 = sc
-      .parallelize(Seq((1L,1L,"One"),(2L,2L,"Two")))
-      .map(p => Row(p._1, p._2, p._3))
-
-    val sqlContext = new SQLContext(sc)
-
-    val schema = StructType(Seq(
-      StructField("id", LongType, nullable = false),
-      StructField("table1_id", LongType, nullable = true),
-      StructField("\"t2col1\"", StringType, nullable = true)
-    ))
-
-    val df = sqlContext.createDataFrame(rdd1, schema)
-
-    df.saveToPhoenix("TABLE2", zkUrl = Some(quorumAddress))
-  }
-
->>>>>>> b8faae5... PHOENIX-2469 Problem with arrays in phoenix-spark (Dawid Wysakowicz)
   test("Ensure Dataframe supports LIKE and IN filters (PHOENIX-2328)") {
     val sqlContext = new SQLContext(sc)
     val df = sqlContext.load("org.apache.phoenix.spark", Map("table" -> "TABLE1",
